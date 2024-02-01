@@ -7,9 +7,13 @@
 #include <filesystem>
 
 struct mesh_internal_t {
-	mesh_t * mesh;
+	mesh_t* mesh;
 	u32 index;
 	u32 size;
+};
+
+struct texture_internal_t {
+	u32 gl;
 };
 
 struct shader_internal_t {
@@ -26,6 +30,7 @@ struct shader_internal_t {
 struct renderer_internal_t {
 	std::vector<mesh_internal_t> meshes;
 	std::vector<shader_internal_t> shaders;
+	std::vector<texture_internal_t> textures;
 };
 
 inline const GLenum shader_data_type_to_gl(shader_data_type type) {
@@ -358,6 +363,24 @@ void renderer_c::mesh_upload(mesh_t* mesh, void* data, usize bytesize) {
 	mesh_internal.size = bytesize / this->internal->shaders[mesh_internal.mesh->shader].vertex_size;
 	this->internal->shaders[mesh_internal.mesh->shader].buffer_size += bytesize;
 	this->internal->meshes[mesh->id] = mesh_internal;
+}
+
+texture_t* renderer_c::create_texture(u32 width, u32 height, u8 bpp, texture_format format, void* data, usize bytesize) {
+	texture_t* texture = new texture_internal_t {
+		.id = 0,
+		.width = width,
+		.height = height,
+		.bpp = bpp,
+		.format = format,
+	};
+
+	glGenTextures(1, &texture->id);
+	glBindTexture(GL_TEXTURE_2D, texture->id);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	return texture;
 }
 
 void renderer_c::draw() {

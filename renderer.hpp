@@ -21,6 +21,13 @@ typedef u32 texture_t;
 typedef u32 shader_stage_t;
 typedef u32 shader_t;
 
+enum class texture_format {
+	RGB = 0,
+	RGBA,
+	BGR,
+	BGRA,
+};
+
 enum class shader_data_type {
 	U8 = 0,
 	U16,
@@ -98,6 +105,8 @@ struct renderer_c {
 
 	mesh_t* create_mesh(const transform_t& transform, const material_t& material, shader_t shader);
 	void mesh_upload(mesh_t* mesh, void * data, usize bytesize);
+
+	texture_t* create_texture(u32 width, u32 height, u8 bpp, texture_format format, void* data, usize bytesize);
 
 	void draw();
 };

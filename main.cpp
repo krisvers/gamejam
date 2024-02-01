@@ -41,9 +41,9 @@ int main(int argc, char ** argv) {
 		return -1;
 	}
 	
-	camera_c camera = camera_c(60, 0.1f, 100.0f, 4.0f / 3.0f);
-	camera.transform.z = 0;
+	camera_c camera = camera_c(80, 0.1f, 100.0f, 4.0f / 3.0f);
 	renderer_c renderer = renderer_c(window, &camera);
+	glfwSwapInterval(1);
 
 	std::vector<shader_stage_t> shaders = {
 		renderer.create_shader_stage(shader_stage_type::VERTEX, "assets/shaders/shader.vert"),
