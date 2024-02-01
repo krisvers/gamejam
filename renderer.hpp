@@ -1,14 +1,14 @@
+#ifndef RENDERER_HPP
+#define RENDERER_HPP
+
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <string>
+#include <exception>
 #include "types.hpp"
-
-struct transform_t {
-	f32 x, y, z;
-	f32 rx, ry, rz;
-	f32 sx, sy, sz;
-};
+#include "camera.hpp"
+#include "utils.hpp"
 
 enum class shader_stage_type {
 	VERTEX = 0,
@@ -81,17 +81,18 @@ inline const usize shader_data_type_size(shader_data_type type) {
 	case shader_data_type::MAT4x4:
 		return sizeof(f32) * 16;
 	default:
-		throw std::exception("Invalid shader data type");
+		return 0;
 	}
 }
 
 struct renderer_c {
 	GLFWwindow* window;
+	camera_c* camera;
 	struct renderer_internal_t * internal;
 
-	renderer_c(GLFWwindow* window);
+	renderer_c(GLFWwindow* window, camera_c* camera);
 
-	shader_stage_t create_shader_stage(shader_stage_type type, const std::string& filepath);
+	shader_stage_t create_shader_stage(shader_stage_type type, const char* filepath);
 	shader_t create_shader(const shader_descriptor_t& descriptor, const std::vector<shader_stage_t>& stages);
 	void shader_uniform(shader_t shader, const std::string& name, void* data, usize size);
 
@@ -100,3 +101,5 @@ struct renderer_c {
 
 	void draw();
 };
+
+#endif

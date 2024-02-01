@@ -1,7 +1,10 @@
 #include "renderer.hpp"
 #include <glad/glad.h>
+#include <linmath.h>
 #include <iostream>
 #include <fstream>
+#include <exception>
+#include <filesystem>
 
 struct mesh_internal_t {
 	mesh_t * mesh;
@@ -61,8 +64,9 @@ inline const GLenum shader_stage_to_gl(shader_stage_type type) {
 	}
 }
 
-renderer_c::renderer_c(GLFWwindow* window) {
+renderer_c::renderer_c(GLFWwindow* window, camera_c* camera) {
 	this->window = window;
+	this->camera = camera;
 	glfwMakeContextCurrent(window);
 	if (gladLoadGLLoader((GLADloadproc) glfwGetProcAddress) == 0) {
 		throw std::runtime_error("Failed to initialize GLAD");
@@ -148,10 +152,16 @@ renderer_c::renderer_c(GLFWwindow* window) {
 	create_shader(desc, stages);
 }
 
-shader_stage_t renderer_c::create_shader_stage(shader_stage_type type, const std::string& filepath) {
+shader_stage_t renderer_c::create_shader_stage(shader_stage_type type, const char* filepath) {
 	std::ifstream file(filepath);
+	if (!file.good()) {
+		std::string error = "File open error ";
+		error += filepath;
+		throw std::runtime_error(error.c_str());
+	}
 	if (!file.is_open()) {
-		std::string error = "Failed to open shader " + filepath;
+		std::string error = "Failed to find shader ";
+		error += filepath;
 		throw std::runtime_error(error.c_str());
 	}
 	std::string source((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -176,7 +186,7 @@ shader_stage_t renderer_c::create_shader_stage(shader_stage_type type, const std
 
 shader_t renderer_c::create_shader(const shader_descriptor_t& desc, const std::vector<shader_stage_t>& stages) {
 	shader_internal_t shader_internal = {
-		.shader = this->internal->shaders.size(),
+		.shader = static_cast<shader_t>(this->internal->shaders.size()),
 		.vertex_size = 0,
 		.program = 0,
 		.vao = 0,
@@ -235,7 +245,7 @@ void renderer_c::shader_uniform(shader_t shader, const std::string& name, void* 
 		throw std::runtime_error("Shader has no uniforms");
 	}
 
-	usize uniform = SIZE_MAX;
+	usize uniform = USIZE_MAX;
 	for (usize i = 0; i < this->internal->shaders[shader].uniforms.size(); i++) {
 		if (this->internal->shaders[shader].uniforms[i].name->compare(name) == 0) {
 			uniform = i;
@@ -243,7 +253,7 @@ void renderer_c::shader_uniform(shader_t shader, const std::string& name, void* 
 		}
 	}
 
-	if (uniform == SIZE_MAX) {
+	if (uniform == USIZE_MAX) {
 		throw std::runtime_error("Uniform does not exist");
 	}
 
@@ -312,13 +322,13 @@ mesh_t* renderer_c::create_mesh(const transform_t& transform, const material_t& 
 
 	mesh_internal_t mesh_internal = {
 		.mesh = new mesh_t {
-			.id = this->internal->meshes.size(),
+			.id = static_cast<u32>(this->internal->meshes.size()),
 			.transform = transform,
 			.material = material,
 			.shader = shader,
 		},
-		.index = SIZE_MAX,
-		.size = SIZE_MAX,
+		.index = U32_MAX,
+		.size = U32_MAX,
 	};
 
 	this->internal->meshes.push_back(mesh_internal);
@@ -352,11 +362,13 @@ void renderer_c::mesh_upload(mesh_t* mesh, void* data, usize bytesize) {
 
 void renderer_c::draw() {
 	glClear(GL_COLOR_BUFFER_BIT);
+
+	this->camera->calculate_matrices();
 	for (usize i = 0; i < this->internal->meshes.size(); i++) {
 		mesh_internal_t mesh_internal = this->internal->meshes[i];
 		shader_internal_t shader_internal = this->internal->shaders[mesh_internal.mesh->shader];
 
-		if (mesh_internal.size == SIZE_MAX) {
+		if (mesh_internal.size == U32_MAX) {
 			continue;
 		}
 
@@ -368,6 +380,12 @@ void renderer_c::draw() {
 		} catch (std::runtime_error e) {
 			break;
 		}
+		try {
+			this->shader_uniform(mesh_internal.mesh->shader, "unif_mvp", &this->camera->vp_matrix[0][0], sizeof(f32) * 16);
+		} catch (std::runtime_error e) {
+			break;
+		}
+
 		glDrawArrays(GL_TRIANGLES, mesh_internal.index, mesh_internal.size);
 	}
 }
