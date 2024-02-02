@@ -8,6 +8,10 @@
 #include "camera.hpp"
 #include "platforms.hpp"
 
+extern "C" {
+#include "ktga/ktga.h"
+}
+
 #ifdef PYLAUNCHER
 #include <filesystem>
 #endif
@@ -78,20 +82,29 @@ int main(int argc, char ** argv) {
 		.sx = 1.0f, .sy = 1.0f, .sz = 1.0f,
 	};
 
-	u32 bitmap[4] = {
-		0xFFFFFFFF, 0xFF0000FF,
-		0xFF00FF00, 0xFFFF0000,
-	};
+	texture_t albedo = 0;
+	{
+		ktga_t tga;
+		std::ifstream file("assets/textures/test.tga", std::ios::binary);
+		if (!file.is_open()) {
+			throw std::runtime_error("Failed to open file");
+		}
 
-	texture_descriptor_t tex_desc = {
-		.width = 2,
-		.height = 2,
-		.bits_per_pixel = 32,
-		.format = texture_format::BGRA,
-		.filter = texture_filter::NEAREST,
-		.wrap = texture_wrap::CLAMP_TO_EDGE,
-	};
-	texture_t albedo = renderer.create_texture(tex_desc, bitmap, sizeof(bitmap));
+		std::vector<char> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		ktga_load(&tga, buffer.data(), static_cast<unsigned long long int>(buffer.size()));
+		file.close();
+
+		texture_descriptor_t tex_desc = {
+			.width = tga.header.img_w,
+			.height = tga.header.img_h,
+			.bits_per_pixel = tga.header.bpp,
+			.format = texture_format::BGRA,
+			.filter = texture_filter::NEAREST,
+			.wrap = texture_wrap::CLAMP_TO_EDGE,
+		};
+
+		albedo = renderer.create_texture(tex_desc, tga.bitmap, sizeof(tga.bitmap));
+	}
 
 	material_t material = {
 		.r = 1.0f,
