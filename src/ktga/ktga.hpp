@@ -1,5 +1,5 @@
-#ifndef KRISVERS_KTGA_H
-#define KRISVERS_KTGA_H
+#ifndef KRISVERS_KTGA_HPP
+#define KRISVERS_KTGA_HPP
 
 typedef struct ktga_header {
 	unsigned char id_len;

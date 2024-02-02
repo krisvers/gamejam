@@ -1,16 +1,15 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <linmath.h>
 #include <iostream>
 #include <fstream>
 #include <cmath>
 #include <exception>
 #include "renderer.hpp"
+#include "input.hpp"
 #include "camera.hpp"
 #include "platforms.hpp"
-
-extern "C" {
-#include "ktga/ktga.h"
-}
+#include "ktga/ktga.hpp"
 
 #ifdef PYLAUNCHER
 #include <filesystem>
@@ -44,54 +43,35 @@ int main(int argc, char ** argv) {
 		glfwTerminate();
 		return -1;
 	}
+
+	input::register_input(window);
 	
 	camera_c camera = camera_c(80, 0.1f, 100.0f, 4.0f / 3.0f);
 	renderer_c renderer = renderer_c(window, &camera);
 	glfwSwapInterval(1);
 
-	std::vector<shader_stage_t> shaders = {
-		renderer.create_shader_stage(shader_stage_type::VERTEX, "assets/shaders/shader.vert"),
-		renderer.create_shader_stage(shader_stage_type::FRAGMENT, "assets/shaders/shader.frag"),
-	};
-
-	shader_descriptor_t desc = {
-		.stages = {
-			shader_stage_type::VERTEX,
-			shader_stage_type::FRAGMENT,
-		},
-		.starting_stage = shader_stage_type::VERTEX,
-		.inputs = {
-			{ shader_data_type::F32, 3 },
-			{ shader_data_type::F32, 2 },
-		},
-		.uniforms = {
-			{ shader_data_type::F32, 4, "unif_material_color" },
-			{ shader_data_type::TEXTURE, 1, "unif_texture_albedo" },
-			{ shader_data_type::MAT4x4, 1, "unif_mvp" },
-		},
-		.texture_attachments = {
-			{ shader_texture_attachment_type::ALBEDO, "unif_texture_albedo" },
-		},
-	};
-
-	shader_t shader = renderer.create_shader(desc, shaders);
-
 	transform_t transform = {
-		.x = 0.0f, .y = 0.0f, .z = 0.0f,
-		.rx = 0.0f, .ry = 0.0f, .rz = 0.0f,
-		.sx = 1.0f, .sy = 1.0f, .sz = 1.0f,
+		.position = { 0, 0, 0 },
+		.rotation = { 0, 0, 0 },
+		.scale = { 1, 1, 1 },
 	};
 
 	texture_t albedo = 0;
 	{
 		ktga_t tga;
 		std::ifstream file("assets/textures/test.tga", std::ios::binary);
+
 		if (!file.is_open()) {
-			throw std::runtime_error("Failed to open file");
+			std::string error = "Failed to open file assets/textures/test.tga";
+			throw std::runtime_error(error);
 		}
 
 		std::vector<char> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-		ktga_load(&tga, buffer.data(), static_cast<unsigned long long int>(buffer.size()));
+		if (ktga_load(&tga, buffer.data(), static_cast<unsigned long long int>(buffer.size())) != 0) {
+			std::string error = "Failed to load tga bitmap from assets/textures/test.tga";
+			throw std::runtime_error(error);
+		}
+
 		file.close();
 
 		texture_descriptor_t tex_desc = {
@@ -110,11 +90,10 @@ int main(int argc, char ** argv) {
 		.r = 1.0f,
 		.g = 0.0f,
 		.b = 0.7f,
-		.a = 1.0f,
 		.textures = { albedo },
 	};
 
-	mesh_t* mesh = renderer.create_mesh(transform, material, shader);
+	mesh_t* mesh = renderer.create_mesh(transform, material, 0);
 
 	float vertices[] = {
 		-0.5f, -0.5f, 0.0f,		0, 0,
@@ -123,14 +102,63 @@ int main(int argc, char ** argv) {
 	};
 	renderer.mesh_upload(mesh, vertices, sizeof(vertices));
 
+	double time;
+	float delta_time = 0;
 	while (!glfwWindowShouldClose(window)) {
+		time = glfwGetTime();
 		mesh->material.r = std::abs(std::sin(glfwGetTime()));
 		mesh->material.g = std::abs(std::cos(glfwGetTime()));
 		mesh->material.b = std::abs(std::sin(glfwGetTime() / 2));
-		camera.transform.z = std::abs(std::cos(glfwGetTime()));
+
+		if (input::key_down(GLFW_KEY_ESCAPE)) {
+			break;
+		}
+
+		vec3 forward = { std::sinf(camera.transform.rotation[1] * (M_PI / 180.0f)), 0, -std::cosf(camera.transform.rotation[1] * (M_PI / 180.0f)) };
+		vec3 up = { 0, 1, 0 };
+		vec3 right;
+		vec3_mul_cross(right, forward, up);
+
+		vec3_scale(forward, forward, delta_time);
+		vec3_scale(right, right, delta_time);
+		vec3_scale(up, up, delta_time);
+		
+		if (input::key(GLFW_KEY_W)) {
+			vec3_add(camera.transform.position, camera.transform.position, forward);
+		}
+		if (input::key(GLFW_KEY_S)) {
+			vec3_sub(camera.transform.position, camera.transform.position, forward);
+		}
+		if (input::key(GLFW_KEY_E)) {
+			vec3_add(camera.transform.position, camera.transform.position, up);
+		}
+		if (input::key(GLFW_KEY_Q)) {
+			vec3_sub(camera.transform.position, camera.transform.position, up);
+		}
+		if (input::key(GLFW_KEY_D)) {
+			vec3_add(camera.transform.position, camera.transform.position, right);
+		}
+		if (input::key(GLFW_KEY_A)) {
+			vec3_sub(camera.transform.position, camera.transform.position, right);
+		}
+
+		if (input::key(GLFW_KEY_LEFT)) {
+			camera.transform.rotation[1] -= delta_time * 100;
+		}
+		if (input::key(GLFW_KEY_RIGHT)) {
+			camera.transform.rotation[1] += delta_time * 100;
+		}
+		if (input::key(GLFW_KEY_DOWN)) {
+			camera.transform.rotation[0] -= delta_time * 100;
+		}
+		if (input::key(GLFW_KEY_UP)) {
+			camera.transform.rotation[0] += delta_time * 100;
+		}
+
 		renderer.draw();
 		glfwSwapBuffers(window);
-		glfwPollEvents();
+		input::update();
+		delta_time = glfwGetTime() - time;
 	}
 
 	glfwDestroyWindow(window);

@@ -1,4 +1,4 @@
-#include "ktga.h"
+#include "ktga.hpp"
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,15 +26,14 @@ int ktga_load(ktga_t * out_tga, void * buffer, unsigned long long int buffer_len
 	out_tga->header.img_h = U16(buf, 14);
 	out_tga->header.bpp = U8(buf, 16);
 	out_tga->header.img_desc = U8(buf, 17);
-	out_tga->bitmap = malloc(out_tga->header.img_w * out_tga->header.img_h * (out_tga->header.bpp / 8));
-	if (out_tga->bitmap == NULL) {
-		return 3;
-	}
+	out_tga->bitmap = reinterpret_cast<void*>(new unsigned char[out_tga->header.img_w * out_tga->header.img_h * (out_tga->header.bpp / 8)]);
 
 	switch (out_tga->header.img_type) {
-		case 2:
-			memcpy(out_tga->bitmap, &buf[18], out_tga->header.img_w * out_tga->header.img_h * (out_tga->header.bpp / 8));
-			break;
+	case 2:
+		memcpy(out_tga->bitmap, &buf[18], out_tga->header.img_w * out_tga->header.img_h * (out_tga->header.bpp / 8));
+		break;
+	default:
+		return 3;
 	}
 
 	return 0;

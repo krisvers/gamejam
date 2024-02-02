@@ -16,6 +16,14 @@ struct texture_internal_t {
 	u32 gl;
 };
 
+struct gbuffer_t {
+	u32 framebuffer;
+	u32 geometry;
+	u32 albedo_specular;
+	u32 normal;
+	shader_t light_pass;
+};
+
 struct shader_internal_t {
 	shader_t shader;
 	u32 vertex_size;
@@ -32,6 +40,7 @@ struct renderer_internal_t {
 	std::vector<mesh_internal_t> meshes;
 	std::vector<shader_internal_t> shaders;
 	std::vector<texture_internal_t> textures;
+	gbuffer_t gbuffer;
 };
 
 inline const GLenum shader_data_type_to_gl(shader_data_type type) {
@@ -139,28 +148,47 @@ renderer_c::renderer_c(GLFWwindow* window, camera_c* camera) {
 
 		layout (location = 0) in vec3 in_pos;
 		layout (location = 1) in vec2 in_uv;
+		layout (location = 2) in vec3 in_normal;
 
+		out vec3 v_pos;
 		out vec2 v_uv;
+		out vec3 v_normal;
 
 		uniform mat4 unif_mvp;
 
 		void main() {
 			gl_Position = unif_mvp * vec4(in_pos, 1.0);
+			v_pos = gl_Position.xyz;
 			v_uv = in_uv.xy;
+			v_normal = in_normal;
 		}
 	)";
 
 	const char* fshader_source = R"(
 		#version 410 core
 
+		layout (location = 0) out vec3 out_geometry;
+		layout (location = 1) out vec3 out_normal;
+		layout (location = 2) out vec4 out_albedo_specular;
+
+		in vec3 v_pos;
 		in vec2 v_uv;
-		out vec4 out_color;
+		in vec3 v_normal;
 		
-		uniform vec4 unif_material_color;
+		uniform vec3 unif_material_color;
 		uniform sampler2D unif_texture_albedo;
+		uniform sampler2D unif_texture_normal;
+		uniform sampler2D unif_texture_specular;
 
 		void main() {
-			out_color = unif_material_color * texture(unif_texture_albedo, v_uv);
+			out_geometry = v_pos;
+			vec4 albedo = texture(unif_texture_albedo, v_uv);
+			if (albedo.a == 0.0) {
+				albedo = vec4(1.0, 1.0, 1.0, 1.0);
+			}
+
+			out_albedo_specular = vec4(unif_material_color * vec3(albedo), texture(unif_texture_specular, v_uv).r);
+			out_normal = texture(unif_texture_normal, v_uv).rgb + v_normal;
 		}
 	)";
 
@@ -185,20 +213,6 @@ renderer_c::renderer_c(GLFWwindow* window, camera_c* camera) {
 		throw std::runtime_error(info_log);
 	}
 
-	GLuint program = glCreateProgram();
-	glAttachShader(program, vshader);
-	glAttachShader(program, fshader);
-	glLinkProgram(program);
-	glGetProgramiv(program, GL_LINK_STATUS, &success);
-	if (!success) {
-		GLchar info_log[512];
-		glGetProgramInfoLog(program, 512, NULL, info_log);
-		throw std::runtime_error(info_log);
-	}
-
-	glDeleteShader(vshader);
-	glDeleteShader(fshader);
-
 	shader_descriptor_t desc = {
 		.stages = {
 			shader_stage_type::VERTEX,
@@ -210,7 +224,7 @@ renderer_c::renderer_c(GLFWwindow* window, camera_c* camera) {
 			{ shader_data_type::F32, 2 },
 		},
 		.uniforms = {
-			{ shader_data_type::F32, 4, "unif_material_color" },
+			{ shader_data_type::F32, 3, "unif_material_color" },
 			{ shader_data_type::TEXTURE, 1, "unif_texture_albedo" },
 			{ shader_data_type::MAT4x4, 1, "unif_mvp" },
 		},
@@ -225,6 +239,96 @@ renderer_c::renderer_c(GLFWwindow* window, camera_c* camera) {
 	};
 
 	create_shader(desc, stages);
+
+	const char* light_pass_source = R"(
+		#version 410 core
+
+		out vec4 out_color;
+
+		uniform sampler2D unif_gbuffer_geometry;
+		uniform sampler2D unif_gbuffer_normal;
+		uniform sampler2D unif_gbuffer_albedo_specular;
+		uniform vec2 unif_screen;
+
+		void main() {
+			out_color = vec4(texture(unif_gbuffer_albedo_specular, gl_FragCoord.xy / unif_screen).rgb, 1.0);
+		}
+	)";
+
+	GLuint light_pass = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(light_pass, 1, &light_pass_source, NULL);
+	glCompileShader(light_pass);
+	glGetShaderiv(light_pass, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		GLchar info_log[512];
+		glGetShaderInfoLog(light_pass, 512, NULL, info_log);
+		throw std::runtime_error(info_log);
+	}
+
+	desc = {
+		.stages = {
+			shader_stage_type::FRAGMENT,
+		},
+		.starting_stage = shader_stage_type::FRAGMENT,
+		.inputs = {
+			
+		},
+		.uniforms = {
+			{ shader_data_type::MAT4x4, 1, "unif_mvp" },
+			{ shader_data_type::MAT4x4, 1, "unif_gbuffer_geometry" },
+			{ shader_data_type::MAT4x4, 1, "unif_gbuffer_normal" },
+			{ shader_data_type::MAT4x4, 1, "unif_gbuffer_albedo_specular" },
+			{ shader_data_type::MAT4x4, 1, "unif_screen" },
+		},
+		.texture_attachments = {  },
+	};
+
+	stages = {
+		fshader,
+	};
+
+	this->internal->gbuffer.light_pass = create_shader(desc, stages);
+
+	glGenFramebuffers(1, &this->internal->gbuffer.framebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, this->internal->gbuffer.framebuffer);
+
+	glGenTextures(3, &this->internal->gbuffer.geometry);
+	glBindTexture(GL_TEXTURE_2D, this->internal->gbuffer.geometry);
+
+	int w, h;
+	glfwGetWindowSize(window, &w, &h);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, w, h, 0, GL_RGBA, GL_FLOAT, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, this->internal->gbuffer.geometry, 0);
+	
+	glBindTexture(GL_TEXTURE_2D, this->internal->gbuffer.albedo_specular);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_FLOAT, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, this->internal->gbuffer.albedo_specular, 0);
+	
+	glBindTexture(GL_TEXTURE_2D, this->internal->gbuffer.normal);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, w, h, 0, GL_RGBA, GL_FLOAT, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, this->internal->gbuffer.normal, 0);
+}
+
+renderer_c::~renderer_c() {
+	for (usize i = 0; i < this->internal->meshes.size(); ++i) {
+		delete this->internal->meshes[i].mesh;
+	}
+
+	for (usize i = 0; i < this->internal->shaders.size(); ++i) {
+		glDeleteShader(this->internal->shaders[i].program);
+		glDeleteVertexArrays(1, &this->internal->shaders[i].vao);
+		glDeleteBuffers(1, &this->internal->shaders[i].vbo);
+	}
+
+	for (usize i = 0; i < this->internal->textures.size(); ++i) {
+		glDeleteTextures(1, &this->internal->textures[i].gl);
+	}
 }
 
 shader_stage_t renderer_c::create_shader_stage(shader_stage_type type, const char* filepath) {
@@ -257,6 +361,10 @@ shader_stage_t renderer_c::create_shader_stage(shader_stage_type type, const cha
 	}
 
 	return shader;
+}
+
+void renderer_c::destroy_shader_stage(shader_stage_t shader) {
+	glDeleteShader(shader);
 }
 
 shader_t renderer_c::create_shader(const shader_descriptor_t& desc, const std::vector<shader_stage_t>& stages) {
@@ -306,6 +414,10 @@ shader_t renderer_c::create_shader(const shader_descriptor_t& desc, const std::v
 		GLchar info_log[512];
 		glGetProgramInfoLog(shader_internal.program, 512, NULL, info_log);
 		throw std::runtime_error(info_log);
+	}
+
+	for (usize i = 0; i < stages.size(); i++) {
+		glDetachShader(shader_internal.program, stages[i]);
 	}
 
 	for (usize u = 0; u < desc.uniforms.size(); u++) {
@@ -513,9 +625,13 @@ texture_t renderer_c::create_texture(const texture_descriptor_t & desc, void* da
 }
 
 void renderer_c::draw() {
-	glClear(GL_COLOR_BUFFER_BIT);
-
 	this->camera->calculate_matrices();
+
+	u32 attachments[3] = {
+		GL_COLOR_ATTACHMENT0,
+		GL_COLOR_ATTACHMENT1,
+		GL_COLOR_ATTACHMENT2,
+	};
 	for (usize i = 0; i < this->internal->meshes.size(); i++) {
 		mesh_internal_t mesh_internal = this->internal->meshes[i];
 		shader_internal_t shader_internal = this->internal->shaders[mesh_internal.mesh->shader];
@@ -528,7 +644,7 @@ void renderer_c::draw() {
 		glBindVertexArray(shader_internal.vao);
 		glBindBuffer(GL_ARRAY_BUFFER, shader_internal.vbo);
 
-		this->shader_uniform(mesh_internal.mesh->shader, "unif_material_color", &mesh_internal.mesh->material.r, sizeof(f32) * 4);
+		this->shader_uniform(mesh_internal.mesh->shader, "unif_material_color", &mesh_internal.mesh->material.r, sizeof(f32) * 3);
 		this->shader_uniform(mesh_internal.mesh->shader, "unif_mvp", &this->camera->vp_matrix[0][0], sizeof(f32) * 16);
 
 		for (usize j = 0; j < shader_internal.texture_attachments.size(); j++) {
@@ -548,4 +664,26 @@ void renderer_c::draw() {
 
 		glDrawArrays(GL_TRIANGLES, mesh_internal.index, mesh_internal.size);
 	}
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, this->internal->gbuffer.geometry);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, this->internal->gbuffer.normal);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, this->internal->gbuffer.albedo_specular);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	glUseProgram(this->internal->gbuffer.light_pass);
+	int w, h;
+	glfwGetWindowSize(this->window, &w, &h);
+	vec2 screen = { static_cast<f32>(w), static_cast<f32>(h) };
+	shader_uniform(this->internal->gbuffer.light_pass, "unif_screen", &screen, sizeof(screen));
+	s32 texture = 0;
+	shader_uniform(this->internal->gbuffer.light_pass, "unif_gbuffer_geometry", &texture, sizeof(texture));
+	texture = 1;
+	shader_uniform(this->internal->gbuffer.light_pass, "unif_gbuffer_normal", &texture, sizeof(texture));
+	texture = 2;
+	shader_uniform(this->internal->gbuffer.light_pass, "unif_gbuffer_albedo_specular", &texture, sizeof(texture));
+	glDrawBuffers(3, attachments);
 }

@@ -94,7 +94,7 @@ struct shader_descriptor_t {
 };
 
 struct material_t {
-	f32 r, g, b, a;
+	f32 r, g, b;
 	std::vector<texture_t> textures;
 };
 
@@ -134,8 +134,10 @@ struct renderer_c {
 	struct renderer_internal_t * internal;
 
 	renderer_c(GLFWwindow* window, camera_c* camera);
+	~renderer_c();
 
 	shader_stage_t create_shader_stage(shader_stage_type type, const char* filepath);
+	void destroy_shader_stage(shader_stage_t shader);
 	shader_t create_shader(const shader_descriptor_t& descriptor, const std::vector<shader_stage_t>& stages);
 	s32 shader_uniform(shader_t shader, const std::string& name, void* data, usize size);
 	b8 shader_uniform_exists(shader_t shader, const std::string& name);
