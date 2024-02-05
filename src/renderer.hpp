@@ -77,6 +77,8 @@ enum class shader_texture_attachment_type {
 	UNKNOWN = 0,
 	ALBEDO,
 	NORMAL,
+	SPECULAR,
+	ROUGHNESS,
 };
 
 struct shader_texture_attachment_t {
@@ -105,6 +107,13 @@ struct mesh_t {
 	shader_t shader;
 };
 
+struct light_t {
+	u32 id;
+	vec3 position;
+	vec3 color;
+	f32 intensity;
+};
+
 inline const usize shader_data_type_size(shader_data_type type) {
 	switch (type) {
 	case shader_data_type::U8:
@@ -124,28 +133,38 @@ inline const usize shader_data_type_size(shader_data_type type) {
 	case shader_data_type::MAT4x4:
 		return sizeof(f32) * 16;
 	default:
-		return 0;
+		return 1;
 	}
 }
 
+struct vertex_t {
+	vec3 pos;
+	vec2 uv;
+	vec3 normal;
+};
+
 struct renderer_c {
 	GLFWwindow* window;
-	camera_c* camera;
+	camera_c& camera;
 	struct renderer_internal_t * internal;
 
-	renderer_c(GLFWwindow* window, camera_c* camera);
+	renderer_c(GLFWwindow* window, camera_c& camera);
 	~renderer_c();
 
 	shader_stage_t create_shader_stage(shader_stage_type type, const char* filepath);
 	void destroy_shader_stage(shader_stage_t shader);
 	shader_t create_shader(const shader_descriptor_t& descriptor, const std::vector<shader_stage_t>& stages);
 	s32 shader_uniform(shader_t shader, const std::string& name, void* data, usize size);
+	s32 shader_uniform_unsafe(shader_t shader, const std::string& name, void* data, usize size, shader_data_type type);
 	b8 shader_uniform_exists(shader_t shader, const std::string& name);
+	void shader_use(shader_t shader);
 
 	mesh_t* create_mesh(const transform_t& transform, const material_t& material, shader_t shader);
-	void mesh_upload(mesh_t* mesh, void * data, usize bytesize);
+	void mesh_upload(mesh_t* mesh, void* vertex_data, usize vertex_bytesize, u32* index_data, usize index_bytesize);
 
 	texture_t create_texture(const texture_descriptor_t& descriptor, void* data, usize bytesize);
+
+	light_t* create_light(vec3 position, vec3 color, f32 intensity);
 
 	void draw();
 };

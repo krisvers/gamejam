@@ -42,12 +42,12 @@ void camera_c::calculate_matrices() {
 	if (this->is_ortho) {
 		mat4x4_ortho(this->perspective_matrix, -this->aspect, this->aspect, -1, 1, -this->far, this->far);
 	} else {
-		mat4x4_perspective(this->perspective_matrix, this->fov * (M_PI / 180.0f), this->aspect, this->near, this->far);
+		mat4x4_perspective(this->perspective_matrix, this->fov * (M_PI / 180.0), this->aspect, this->near, this->far);
 	}
 
-	mat4x4_rotate_X(this->perspective_matrix, this->perspective_matrix, -this->transform.rotation[0] * (M_PI / 180.0f));
-	mat4x4_rotate_Y(this->perspective_matrix, this->perspective_matrix, this->transform.rotation[1] * (M_PI / 180.0f));
-	mat4x4_rotate_Z(this->perspective_matrix, this->perspective_matrix, -this->transform.rotation[2] * (M_PI / 180.0f));
+	mat4x4_rotate_X(this->perspective_matrix, this->perspective_matrix, -this->transform.rotation[0] * (M_PI / 180.0));
+	mat4x4_rotate_Y(this->perspective_matrix, this->perspective_matrix, this->transform.rotation[1] * (M_PI / 180.0));
+	mat4x4_rotate_Z(this->perspective_matrix, this->perspective_matrix, -this->transform.rotation[2] * (M_PI / 180.0));
 
 	mat4x4_mul(this->vp_matrix, this->perspective_matrix, this->view_matrix);
 }
